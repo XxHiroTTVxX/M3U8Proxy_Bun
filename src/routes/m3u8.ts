@@ -1,6 +1,6 @@
 import type { Context } from "hono";
 
-class M3U8Parser {
+export class M3U8Parser {
   private static readonly listOfPlaylistKeywords: string[] = ["#EXT-X-STREAM-INF", "#EXT-X-I-FRAME-STREAM-INF"];
 
   static isPlaylistM3U8(lines: string[]): boolean {
@@ -15,22 +15,27 @@ class M3U8Parser {
   }
 
   static fixM3U8Urls(lines: string[], baseUrl: string, proxyPrefix: string, ref?: string): string {
-    // Extract the base URL without query parameters and get base directory for segments
     const baseUrlWithoutQuery = baseUrl.split('?')[0];
-    const baseDirectory = baseUrlWithoutQuery.split('/').slice(0, -1).join('/');
+    
+
+    let baseDirectory = baseUrlWithoutQuery;
+    if (!baseDirectory.endsWith('/')) {
+      baseDirectory = baseDirectory.substring(0, baseDirectory.lastIndexOf('/') + 1);
+    }
+    
+    console.log(`[M3U8] Base URL: ${baseUrl}`);
+    console.log(`[M3U8] Base Directory: ${baseDirectory}`);
+    
     const uri = new URL(baseDirectory);
     const uriPattern = /URI="([^"]+)"/;
     const refParam = ref ? `&ref=${encodeURIComponent(ref)}` : '';
     
-    // Detect if this is a master playlist or contains segments
-    const isMasterPlaylist = this.isPlaylistM3U8(lines);
-    const hasSegments = lines.some(line => line.includes('.ts') || line.includes('.m4s'));
 
     return lines.map(line => {
-      // Skip comments and empty lines except special cases
       if (!line.trim() || (line.startsWith('#') && 
           !line.includes('URI=') && 
-          !line.includes('#EXT-X-I-FRAME-STREAM-INF'))) {
+          !line.includes('#EXT-X-I-FRAME-STREAM-INF') &&
+          !line.includes('#EXT-X-STREAM-INF'))) {
         return line;
       }
 
@@ -52,18 +57,21 @@ class M3U8Parser {
           const uriContent = match?.[1] ?? '';
           fullUrl = new URL(uriContent, uri).href;
         } else if (!line.startsWith('#')) {
-          // Handle segments and other URLs
-          fullUrl = new URL(line, uri).href;
+          // Handle segments and other URLs - make sure to resolve relative paths against base
+          fullUrl = new URL(line.trim(), uri).href;
+          console.log(`[M3U8] Resolved URL: ${line.trim()} -> ${fullUrl}`);
         } else {
           return line;
         }
 
-        // Determine which proxy route to use
-        let routePrefix = proxyPrefix;
+        // Determine which proxy route to use based on the content type
+        let routePrefix = '/proxy'; // Default to proxy route for all content
         if (fullUrl.endsWith('.key') || line.includes('#EXT-X-KEY')) {
-          routePrefix = '/proxy';
-        } else if (hasSegments && (fullUrl.endsWith('.ts') || fullUrl.endsWith('.m4s'))) {
-          routePrefix = '/proxy'; // Use direct proxy for segments
+          routePrefix = '/proxy'; // Use proxy for key files
+        } else if (fullUrl.endsWith('.ts') || fullUrl.endsWith('.m4s')) {
+          routePrefix = '/proxy'; // Use proxy for segments
+        } else if (fullUrl.endsWith('.m3u8') || fullUrl.endsWith('.m3u')) {
+          routePrefix = '/proxy'; // Use m3u8 route for playlist files
         }
 
         // Create proxied URL
@@ -76,7 +84,7 @@ class M3U8Parser {
         return proxiedUrl;
 
       } catch (error) {
-        console.error('Error processing line:', line, error);
+        console.error('[M3U8] Error processing line:', line, error);
         return line; // Return original line if URL parsing fails
       }
     }).join('\n');
@@ -84,94 +92,174 @@ class M3U8Parser {
 }
 
 export const handleM3U8 = async (c: Context) => {
-  try {
-    // Get URL and ref from query parameters
-    const url = c.req.query("url");
-    // Check if ref is in the URL's query parameters
-    const urlObj = url ? new URL(url) : null;
-    const refFromUrl = urlObj?.searchParams.get("ref") || undefined;
-    // Use ref from either the proxy's query or the original URL's query
-    const ref = c.req.query("ref") || refFromUrl;
+  // Handle OPTIONS requests for CORS preflight
+  if (c.req.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+        "Access-Control-Allow-Headers": "*",
+        "Access-Control-Max-Age": "86400"
+      }
+    });
+  }
 
-    if (!url) {
-      return new Response(JSON.stringify({ error: "URL parameter is required" }), {
-        status: 400,
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept, Origin, Referer"
-        }
-      });
+  try {
+    // Get URL and ref from query parameters and decode them
+    let url = c.req.query("url");
+    if (url) {
+      try {
+        // Decode the URL if it's encoded
+        url = decodeURIComponent(url);
+        // Remove any trailing slashes
+        url = url.replace(/\/*$/, '');
+      } catch (e) {
+        console.error("[M3U8] Error decoding URL:", e);
+        // If decoding fails, use the original URL
+      }
     }
 
+    // Check if ref is in the URL's query parameters
+    let ref: string | undefined;
+    try {
+      const urlObj = url ? new URL(url) : null;
+      let refFromUrl = urlObj?.searchParams.get("ref") || undefined;
+      if (refFromUrl) {
+        refFromUrl = decodeURIComponent(refFromUrl);
+      }
+      
+      // Get and decode the ref parameter
+      let refParam = c.req.query("ref");
+      if (refParam) {
+        refParam = decodeURIComponent(refParam);
+      }
+      // Use ref from either the proxy's query or the original URL's query
+      ref = refParam || refFromUrl;
+    } catch (e) {
+      console.error("[M3U8] Error processing referer:", e);
+      // If ref handling fails, continue without it
+    }
+
+    if (!url) {
+      return createCorsResponse(
+        JSON.stringify({ error: "URL parameter is required" }),
+        400,
+        "application/json"
+      );
+    }
+
+    console.log(`[M3U8] Fetching decoded URL: ${url}`);
+    console.log(`[M3U8] Decoded Referer: ${ref || 'none'}`);
+
     const headers: HeadersInit = {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+      "Accept": "*/*",
+      "Accept-Language": "en-US,en;q=0.9",
+      "Connection": "keep-alive"
     };
 
     if (ref) {
-      headers["Referer"] = ref;
+      try {
+        headers["Referer"] = ref;
+        headers["Origin"] = new URL(ref).origin;
+      } catch (e) {
+        console.error("[M3U8] Invalid referer URL:", ref);
+      }
     }
 
-    const response = await fetch(url, { headers });
+    const response = await fetch(url, { 
+      headers,
+      redirect: 'follow'
+    });
+
+    console.log(`[M3U8] Response status: ${response.status}`);
+    console.log(`[M3U8] Response type: ${response.headers.get('content-type')}`);
 
     if (!response.ok) {
-      return new Response(JSON.stringify({ error: "Failed to fetch M3U8" }), {
-        status: response.status,
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept, Origin, Referer"
-        }
-      });
+      const errorText = await response.text();
+      console.error(`[M3U8] Error response: ${errorText}`);
+      return createCorsResponse(
+        JSON.stringify({ 
+          error: "Failed to fetch M3U8",
+          status: response.status,
+          url: url,
+          details: errorText.slice(0, 200)
+        }),
+        response.status,
+        "application/json"
+      );
     }
 
     const content = await response.text();
+    console.log(`[M3U8] Content length: ${content.length}`);
+    console.log(`[M3U8] First 100 chars: ${content.slice(0, 100)}`);
+
     if (!content.trim()) {
-      return new Response("Invalid M3U8 content", {
-        status: 500,
-        headers: {
-          "Content-Type": "text/plain",
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept, Origin, Referer"
-        }
-      });
+      return createCorsResponse(
+        "Invalid M3U8 content (empty response)", 
+        500,
+        "text/plain"
+      );
+    }
+
+    if (!content.includes('#EXTM3U')) {
+      console.error(`[M3U8] Invalid content received:`, content);
+      return createCorsResponse(
+        JSON.stringify({
+          error: "Invalid M3U8 content (no #EXTM3U tag)",
+          content: content.slice(0, 200)
+        }),
+        500,
+        "application/json"
+      );
     }
 
     const lines = content.split("\n");
     
-    // Get the base URL for the proxy (e.g., "/m3u8")
-    const proxyPrefix = "/m3u8";
-    
-    // Fix URLs in the M3U8 content
-    const fixedContent = M3U8Parser.fixM3U8Urls(lines, url, proxyPrefix, ref);
+    // Fix URLs in the M3U8 content, using '/m3u8' for playlists
+    const fixedContent = M3U8Parser.fixM3U8Urls(lines, url, '/proxy', ref);
 
     // Set up response headers
-    const responseHeaders = new Headers({
-      "Content-Type": response.headers.get("Content-Type") || "application/vnd.apple.mpegurl",
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept, Origin, Referer",
-      "Access-Control-Max-Age": "86400",
-      "Cache-Control": response.headers.get("Cache-Control") || "no-cache"
-    });
-
-    return new Response(fixedContent, {
-      headers: responseHeaders,
-      status: 200
-    });
-  } catch (error) {
-    console.error("Error processing M3U8 file:", error);
-    return new Response(JSON.stringify({ error: "Failed to process M3U8" }), {
-      status: 500,
-      headers: {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept, Origin, Referer"
-      }
-    });
+    const cache = response.headers.get("Cache-Control") || "no-cache";
+    
+    return createCorsResponse(
+      fixedContent, 
+      200,
+      "application/vnd.apple.mpegurl",
+      { "Cache-Control": cache }
+    );
+  } catch (error: any) {
+    console.error("[M3U8] Error processing M3U8 file:", error);
+    return createCorsResponse(
+      JSON.stringify({ 
+        error: "Failed to process M3U8",
+        details: error?.message || "Unknown error"
+      }),
+      500,
+      "application/json"
+    );
   }
 };
+
+// Helper function to create CORS-enabled responses
+export function createCorsResponse(
+  body: string,
+  status: number,
+  contentType: string,
+  additionalHeaders: Record<string, string> = {}
+): Response {
+  const headers = new Headers({
+    "Content-Type": contentType,
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+    "Access-Control-Allow-Headers": "*",
+    "Access-Control-Max-Age": "86400",
+    ...additionalHeaders
+  });
+
+  return new Response(body, {
+    status,
+    headers
+  });
+}
