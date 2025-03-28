@@ -1,0 +1,21 @@
+{
+  "name": "m3u8proxy_bun",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "bun index.ts",
+    "dev": "bun --hot src/index.ts",
+    "docker:build": "docker build -t m3u8-proxy-bun .",
+    "docker:run": "docker run -d -p 3000:3000 m3u8-proxy-bun"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "hono": "^4.7.5"
+  }
+}
