@@ -1,18 +1,18 @@
-# M3U8 Proxy with Bun and Hono
+# AniStream
 
-A lightweight and fast M3U8 proxy for streaming HLS files, built using Bun runtime and Hono framework.
+A lightweight and fast M3U8 and CORS proxy for streaming media content, built using Bun runtime and Hono framework.
 
 ## Features
 
-- Proxies M3U8 playlist files and their segments
-- Automatically rewrites URLs in M3U8 files to route through the proxy
-- Handles proper MIME types for M3U8 and TS files
-- Supports VTT subtitle files with image references
-- Correctly handles both absolute and relative URLs in M3U8 files
-- CORS support for cross-origin requests
-- Detects disguised TS files by checking binary content
-- Supports custom HTTP Referer headers for requests
-- Lightweight and fast with minimal dependencies
+- **Easy Media Streaming** - Access video streams from any source without restrictions
+- **Universal Compatibility** - Works with any HLS (M3U8) video player or media application
+- **Automatic URL Handling** - All links in playlists are automatically processed to work through the proxy
+- **Cross-Origin Support** - Bypass CORS restrictions when accessing media from different domains
+- **Subtitle Support** - Handles VTT subtitle files including any embedded images
+- **Custom Referrer** - Set custom referrer headers to bypass website protections
+- **Format Detection** - Automatically identifies and correctly serves different media types
+- **Lightning Fast** - Built with Bun and Hono for exceptional performance with minimal resource usage
+- **Simple Integration** - Easy to use with straightforward URL patterns for any application
 
 ## Prerequisites
 
