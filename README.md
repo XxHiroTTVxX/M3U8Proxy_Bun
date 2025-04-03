@@ -51,6 +51,69 @@ bun start
 - `PROXY_URL`: (Optional) Base URL to prefix relative paths with. Include trailing slash.
 - `PORT`: (Optional) The port to run the server on (default: 3000)
 
+## API Reference
+
+AniStream provides several endpoints to handle different types of content:
+
+### M3U8 Proxy Endpoints
+
+#### `/m3u8` - M3U8 Playlist Processing
+
+Fetches and processes M3U8 playlists, rewriting all URLs to be proxied through AniStream.
+
+```
+http://localhost:3000/m3u8?url=https://example.com/path/to/playlist.m3u8
+```
+
+Optional parameters:
+- `ref`: Custom referer header (e.g. `&ref=https://example.com`)
+
+#### `/m3u8-intro` - M3U8 Playlist with Video Intro
+
+Similar to the `/m3u8` endpoint but adds a video intro at the beginning of the stream.
+
+```
+http://localhost:3000/m3u8-intro?url=https://example.com/path/to/playlist.m3u8
+```
+
+Optional parameters:
+- `ref`: Custom referer header
+
+#### `/proxy` - General Purpose Content Proxy
+
+Proxies any content with proper CORS headers, used for video segments, images, and other resources.
+
+```
+http://localhost:3000/proxy?url=https://example.com/path/to/segment.ts
+```
+
+Optional parameters:
+- `ref`: Custom referer header
+
+#### `/intro/intro.ts` - Direct Intro Access
+
+Directly serves the intro video file when using the m3u8-intro feature.
+
+```
+http://localhost:3000/intro/intro.ts
+```
+
+### Legacy Path-Based Format
+
+For backward compatibility, you can also use the path-based format:
+
+```
+http://localhost:3000/proxy/https://example.com/path/to/stream.m3u8
+```
+
+Or with a custom referer:
+
+```
+http://localhost:3000/proxy/https%3A%2F%2Fexample-referer.com/https://example.com/path/to/stream.m3u8
+```
+
+Note: In this format, the referer URL must be URL-encoded.
+
 ### Proxying M3U8 files
 
 #### Path-based format
