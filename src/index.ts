@@ -4,6 +4,7 @@ import { cors } from "hono/cors";
 import { handleProxy } from "./routes/proxy";
 import { handleM3U8 } from "./routes/m3u8";
 import { handleM3U8WithIntro } from "./routes/m3u8WithIntro";
+import { videoRoute } from "./routes/video";
 import fs from "fs";
 import path from "path";
 
@@ -31,13 +32,14 @@ app.use('*', async (c, next) => {
 });
 
 app.get("/", (c) => {
-  return c.text("M3U8 Proxy - Use /m3u8?url=YOUR_M3U8_URL or /proxy?url=YOUR_URL to proxy content");
+  return c.text("M3U8 Proxy - Use /m3u8?url=YOUR_M3U8_URL, /proxy?url=YOUR_URL to proxy content, or /youtube/YOUTUBE_ID to view a YouTube video");
 });
 
 app.get("/proxy", handleProxy);
 app.get("/m3u8", handleM3U8);
 app.get("/m3u8-intro", handleM3U8WithIntro);
-
+// Add the video route - fix to use proper path
+app.route("/", videoRoute);
 // Handler for serving the intro file directly
 app.get("/intro/intro.ts", async (c) => {
   try {
