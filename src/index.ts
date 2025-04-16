@@ -39,7 +39,7 @@ app.get("/proxy", handleProxy);
 app.get("/m3u8", handleM3U8);
 app.get("/m3u8-intro", handleM3U8WithIntro);
 // Add the video route - fix to use proper path
-app.route("/", videoRoute);
+app.route("/video", videoRoute);
 // Handler for serving the intro file directly
 app.get("/intro/intro.ts", async (c) => {
   try {

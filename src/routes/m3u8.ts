@@ -133,16 +133,38 @@ export class M3U8Parser {
 
 }
 
-export const handleM3U8 = async (c: Context) => {
+export const handleM3U8 = async (c: Context | { url: string, ref?: string }) => {
   try {
-    // Get URL from query parameters
-    const url = c.req.query("url");
-    if (!url) {
-      return c.json({ error: "URL parameter is required" });
+    // Get URL and ref either from context or direct parameters
+    let url: string | undefined;
+    let ref: string | undefined;
+
+    if ('url' in c) {
+      // Direct parameters
+      url = c.url;
+      ref = c.ref;
+    } else {
+      // Check if this is a video route request
+      const path = c.req.path;
+      if (path.startsWith('/video/')) {
+        // This is a video route request, construct the URL
+        url = c.req.url;
+        ref = c.req.header("Referer");
+      } else {
+        // Normal m3u8 route request
+        url = c.req.query("url");
+        ref = c.req.query("ref") || c.req.header("Referer");
+      }
     }
 
-    // Get referrer info
-    const ref = c.req.query("ref") || c.req.header("Referer");
+    if (!url) {
+      return new Response(JSON.stringify({ error: "URL parameter is required" }), {
+        status: 400,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+    }
 
     // Log the request
     console.log(`[M3U8] Proxying playlist: ${url}`);
@@ -180,7 +202,12 @@ export const handleM3U8 = async (c: Context) => {
 
     if (!response.ok) {
       console.error(`[M3U8] Error fetching playlist: ${response.status} ${response.statusText}`);
-      return c.json({ error: "Failed to fetch playlist", status: response.status });
+      return new Response(JSON.stringify({ error: "Failed to fetch playlist", status: response.status }), {
+        status: response.status,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
     }
 
     // Get the playlist content
@@ -197,23 +224,24 @@ export const handleM3U8 = async (c: Context) => {
     // Fix URLs in the playlist
     const updatedContent = M3U8Parser.fixM3U8Urls(lines, url, "/proxy", ref);
 
-    let finalContent = updatedContent;
-
     // Create response with appropriate headers
-    const additionalHeaders: Record<string, string> = {
-      "Cache-Control": "no-cache",
-      "Content-Disposition": 'inline; filename="playlist.m3u8"'
-    };
-    
     return createCorsResponse(
-      finalContent,
+      updatedContent,
       200,
       "application/vnd.apple.mpegurl",
-      additionalHeaders
+      {
+        "Cache-Control": "no-cache",
+        "Content-Disposition": 'inline; filename="playlist.m3u8"'
+      }
     );
   } catch (error: any) {
     console.error("[M3U8] Error processing playlist:", error);
-    return c.json({ error: "Error processing playlist", message: error.message || "Unknown error" });
+    return new Response(JSON.stringify({ error: "Error processing playlist", message: error.message || "Unknown error" }), {
+      status: 500,
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
   }
 };
 
