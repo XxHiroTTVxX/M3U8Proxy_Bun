@@ -2,6 +2,14 @@ import { Hono, type Context } from 'hono';
 import { AES } from '../utils/crypto';
 import { handleM3U8 } from './m3u8'; // Assuming handleM3U8 is exported from m3u8.ts
 
+// --- Known Referrers Configuration ---
+// Map target domains to their default referrer URLs
+// Add more entries as needed: ['target.domain.com', 'https://referrer.site/']
+const knownReferrers = new Map<string, string>([
+    ['frostbite27.pro', 'https://megacloud.club/'] // Example entry
+]);
+// -------------------------------------
+
 // Create a new Hono app instance specifically for this route
 const video = new Hono();
 
@@ -40,14 +48,14 @@ video.get('/video/:encryptedUrl', async (c: Context) => {
         decryptedUrl = AES.Decrypt(encryptedUrlParam, aesKey);
         console.log(`[Video Route] Decrypted URL: ${decryptedUrl}`);
 
-        // Determine the referrer: prioritize encrypted 'encRef'
+        // Determine the referrer
         if (encryptedRefParam) {
+            // Prioritize encrypted 'encRef'
             try {
                 finalRef = AES.Decrypt(encryptedRefParam, aesKey);
                 console.log(`[Video Route] Using Decrypted Referrer (from encRef): ${finalRef}`);
             } catch (refError: any) {
                 console.error("[Video Route] Failed to decrypt 'encRef' parameter:", refError);
-                // If decryption of ref fails, return an error as it's likely malformed
                 return c.json({ error: "Failed to decrypt referrer. Invalid or corrupted data." }, 400);
             }
         } else if (plainRefParam) {
@@ -55,8 +63,22 @@ video.get('/video/:encryptedUrl', async (c: Context) => {
             finalRef = plainRefParam;
             console.log(`[Video Route] Using Plain Referrer (from ref): ${finalRef}`);
         } else {
-            // Neither referrer parameter was provided
-             console.log(`[Video Route] No referrer parameter (encRef or ref) provided.`);
+            // Neither 'encRef' nor 'ref' provided, check knownReferrers
+            try {
+                const targetUrl = new URL(decryptedUrl);
+                const targetHostname = targetUrl.hostname;
+                if (knownReferrers.has(targetHostname)) {
+                    finalRef = knownReferrers.get(targetHostname);
+                    console.log(`[Video Route] Using Known Referrer for ${targetHostname}: ${finalRef}`);
+                } else {
+                     console.log(`[Video Route] No referrer parameter provided and target host (${targetHostname}) not in knownReferrers.`);
+                }
+            } catch (urlError) {
+                console.error(`[Video Route] Failed to parse decrypted URL (${decryptedUrl}) to check for known referrer:`, urlError);
+                // Potentially handle this error, maybe proceed without ref or return error?
+                // For now, proceed without ref if URL parsing fails
+                console.log(`[Video Route] Proceeding without referrer due to URL parse error.`);
+            }
         }
 
         // Pass the decrypted URL and the determined ref to the M3U8 handler
