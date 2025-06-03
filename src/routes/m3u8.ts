@@ -46,7 +46,7 @@ export class M3U8Parser {
     const isM3u8 = url.includes('.m3u8') || url.includes('chunklist');
     
     // Check if this is a key file
-    const isKeyFile = url.includes('/keys/') || url.endsWith('.key');
+    const isKeyFile = url.endsWith('.key');
     
     // The ref parameter
     const refParam = ref ? `&ref=${encodeURIComponent(ref)}` : '';
